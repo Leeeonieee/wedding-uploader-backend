@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import multer from "multer";
 import dotenv from "dotenv";
 import { createSubfolder, uploadToGoogleDrive } from "./googleDrive.js";
@@ -6,6 +7,11 @@ import { createSubfolder, uploadToGoogleDrive } from "./googleDrive.js";
 dotenv.config();
 
 const app = express();
+
+app.use(cors({
+  origin: "https://leeoonieee.github.io"
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
