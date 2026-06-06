@@ -10,7 +10,7 @@ const app = express();
 
 // CORS — allow your GitHub Pages site
 app.use(cors({
-  origin: "https://leeEOnieee.github.io"
+  origin: "https://leeeonieee.github.io"
 }));
 
 app.use(express.json());
