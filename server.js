@@ -8,8 +8,8 @@ dotenv.config();
 
 const app = express();
 
+// CORS — allow your GitHub Pages site
 app.use(cors({
-  origin: "app.use(cors({
   origin: "https://leeEOnieee.github.io"
 }));
 
