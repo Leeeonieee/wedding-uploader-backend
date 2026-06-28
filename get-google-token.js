@@ -1,7 +1,7 @@
 import readline from "readline";
 import { google } from "googleapis";
 
-const CLIENT_ID = "438035383089-tlb7jv2flpk6sb9i39vbd1mebj9or5ei.apps.googleusercontent.com";
+const CLIENT_ID = "438035383089-6a86p7aljc0tajeegovi0ukr46bf4q5r.apps.googleusercontent.com";
 const CLIENT_SECRET = "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";
 const REDIRECT_URI = "http://localhost";
 
