@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import fs from "fs";
+import { PassThrough } from "stream";
 
 const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -16,31 +16,44 @@ const drive = google.drive({
     auth: oauth2Client,
 });
 
+// Create or reuse folder (prevents duplicates)
 export async function createSubfolder(parentFolderId, folderName) {
+    const search = await drive.files.list({
+        q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed=false`,
+        fields: "files(id, name)",
+    });
+
+    if (search.data.files.length > 0) {
+        return search.data.files[0].id;
+    }
 
     const response = await drive.files.create({
         requestBody: {
             name: folderName,
             mimeType: "application/vnd.google-apps.folder",
-            parents: [parentFolderId]
+            parents: [parentFolderId],
         },
-        fields: "id"
+        fields: "id",
     });
 
     return response.data.id;
 }
 
-export async function uploadToGoogleDrive(filePath, fileName, folderId) {
+// STREAM upload (NO disk usage)
+export async function uploadStreamToGoogleDrive(stream, fileName, folderId) {
+    const bufferStream = new PassThrough();
+
+    stream.pipe(bufferStream);
 
     const response = await drive.files.create({
         requestBody: {
             name: fileName,
-            parents: [folderId]
+            parents: [folderId],
         },
         media: {
-            body: fs.createReadStream(filePath)
+            body: bufferStream,
         },
-        fields: "id"
+        fields: "id",
     });
 
     return response.data.id;
