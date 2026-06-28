@@ -1,34 +1,43 @@
 import readline from "readline";
 import { google } from "googleapis";
-
-const CLIENT_ID = "438035383089-6a86p7aljc0tajeegovi0ukr46bf4q5r.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
-const REDIRECT_URI = "http://localhost";
-
+import dotenv from "dotenv";
+dotenv.config();
 
 const oauth2Client = new google.auth.OAuth2(
-  CLIENT_ID,
-  CLIENT_SECRET,
-  REDIRECT_URI
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    "http://localhost/"
 );
 
-const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
-
 const authUrl = oauth2Client.generateAuthUrl({
-  access_type: "offline",
-  scope: SCOPES,
+    access_type: "offline",
+    prompt: "consent",
+    scope: [
+        "https://www.googleapis.com/auth/drive.file"
+    ]
 });
 
-console.log("Open this URL in your browser:");
 console.log(authUrl);
 
 const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
+    input: process.stdin,
+    output: process.stdout
 });
 
-rl.question("\nEnter the code from Google: ", async (code) => {
-  const { tokens } = await oauth2Client.getToken(code);
-  console.log("\nREFRESH TOKEN:\n", tokens.refresh_token);
-  rl.close();
+rl.question("Paste code: ", async (code) => {
+
+    try {
+
+        const { tokens } = await oauth2Client.getToken(code);
+
+        console.log(tokens);
+
+    } catch (e) {
+
+        console.error(e);
+
+    }
+
+    rl.close();
+
 });
