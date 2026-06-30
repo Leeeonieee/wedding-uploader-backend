@@ -1,185 +1,96 @@
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import Busboy from "busboy";
-import { google } from "googleapis";
-import { createSubfolder, uploadStreamToGoogleDrive } from "./googleDrive.js";
+import { drive, createSubfolder, uploadStreamToGoogleDrive } from "./googleDrive.js";
 
 dotenv.config();
 
 const app = express();
+const MAX = 3;
 
-const MAX_CONCURRENT_UPLOADS = 3;
+app.use(cors({ origin: "*" }));
 
-// ------------------------------
-// GOOGLE DRIVE AUTH (for listing files too)
-// ------------------------------
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  "http://localhost/"
-);
+// ---------------- UPLOAD ----------------
+app.post("/upload", (req, res) => {
+  const busboy = Busboy({ headers: req.headers });
 
-oauth2Client.setCredentials({
-  refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-});
+  let name = "";
+  const files = [];
 
-const drive = google.drive({
-  version: "v3",
-  auth: oauth2Client,
-});
+  busboy.on("field", (k,v) => {
+    if (k === "name") name = v;
+  });
 
-// ------------------------------
-// CORS
-// ------------------------------
-app.use(
-  cors({
-    origin: "https://leeeonieee.github.io",
-  })
-);
-
-app.use(express.json());
-
-// ======================================================
-// 📤 UPLOAD ENDPOINT (STREAMING + RETRY + BATCH)
-// ======================================================
-app.post("/upload", async (req, res) => {
-  try {
-    const busboy = Busboy({ headers: req.headers });
-
-    const files = [];
-    let guestName = "";
-
-    const uploadProgress = {
-      totalFiles: 0,
-      completed: 0,
-    };
-
-    busboy.on("field", (name, val) => {
-      if (name === "name") guestName = val;
-    });
-
-    busboy.on("file", (name, file, info) => {
-      const { filename } = info;
-
-      const chunks = [];
-
-      file.on("data", (chunk) => {
-        chunks.push(chunk);
-      });
-
-      file.on("end", () => {
-        const buffer = Buffer.concat(chunks);
-
-        files.push({
-          stream: buffer,
-          filename,
-          size: buffer.length,
-        });
+  busboy.on("file", (field, file, info) => {
+    const chunks = [];
+    file.on("data", c => chunks.push(c));
+    file.on("end", () => {
+      files.push({
+        buffer: Buffer.concat(chunks),
+        filename: info.filename
       });
     });
+  });
 
-    busboy.on("finish", async () => {
-      try {
-        const mainFolderId = process.env.GOOGLE_UPLOAD_FOLDER_ID;
+  busboy.on("finish", async () => {
+    try {
+      const root = process.env.GOOGLE_UPLOAD_FOLDER_ID;
+      const folder = await createSubfolder(root, name);
 
-        const guestFolderId = await createSubfolder(
-          mainFolderId,
-          guestName
-        );
+      const uploaded = [];
 
-        const uploadedFiles = [];
-        const failedFiles = [];
-
-        uploadProgress.totalFiles = files.length;
-
-        async function uploadWithRetry(file, attempt = 1) {
-          try {
-            const fileId = await uploadStreamToGoogleDrive(
-              file.stream,
-              file.filename,
-              guestFolderId
-            );
-
-            uploadProgress.completed++;
-            return fileId;
-          } catch (err) {
-            if (attempt < 3) {
-              return uploadWithRetry(file, attempt + 1);
-            } else {
-              failedFiles.push(file.filename);
-              return null;
-            }
-          }
-        }
-
-        for (
-          let i = 0;
-          i < files.length;
-          i += MAX_CONCURRENT_UPLOADS
-        ) {
-          const chunk = files.slice(
-            i,
-            i + MAX_CONCURRENT_UPLOADS
-          );
-
-          const results = await Promise.all(
-            chunk.map(uploadWithRetry)
-          );
-
-          uploadedFiles.push(
-            ...results.filter(Boolean)
-          );
-        }
-
-        res.json({
-          success: true,
-          uploadedFiles,
-          failedFiles,
-          total: files.length,
-          uploaded: uploadProgress.completed,
-        });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Upload failed" });
+      async function upload(f) {
+        const id = await uploadStreamToGoogleDrive(f.buffer, f.filename, folder);
+        uploaded.push(id);
       }
-    });
 
-    req.pipe(busboy);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Upload failed" });
-  }
+      for (let i=0;i<files.length;i+=MAX){
+        await Promise.all(files.slice(i,i+MAX).map(upload));
+      }
+
+      res.json({ success:true, uploaded });
+    } catch(e){
+      console.log(e);
+      res.status(500).json({ error:"upload failed" });
+    }
+  });
+
+  req.pipe(busboy);
 });
 
-// ======================================================
-// 📁 GET ALL FILES (GALLERY ENDPOINT)
-// ======================================================
-app.get("/files", async (req, res) => {
+// ---------------- GALLERY ----------------
+app.get("/files", async (req,res)=>{
   try {
-    const mainFolderId =
-      process.env.GOOGLE_UPLOAD_FOLDER_ID;
+    const root = process.env.GOOGLE_UPLOAD_FOLDER_ID;
 
-    const response = await drive.files.list({
-      q: `'${mainFolderId}' in parents and trashed=false`,
-      fields:
-        "files(id, name, mimeType, webViewLink, thumbnailLink)",
+    const folders = await drive.files.list({
+      q: `'${root}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)"
     });
 
-    res.json(response.data.files);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: "Failed to fetch files",
-    });
+    let all = [];
+
+    for (const f of folders.data.files){
+      const files = await drive.files.list({
+        q: `'${f.id}' in parents and trashed=false`,
+        fields: "files(id,name,mimeType)"
+      });
+
+      for (const file of files.data.files){
+        all.push({
+          ...file,
+          guest: f.name
+        });
+      }
+    }
+
+    res.json(all);
+  } catch(e){
+    console.log(e);
+    res.status(500).json({error:"failed"});
   }
 });
 
-// ------------------------------
-// START SERVER
-// ------------------------------
-app.listen(process.env.PORT, () => {
-  console.log(
-    `Server running on port ${process.env.PORT}`
-  );
-});
+app.listen(process.env.PORT || 3000);
